@@ -1,0 +1,119 @@
+name: ai-library-go-python
+x-go: &go
+  image: ai-library-go:local
+  build: {context: ., dockerfile: backend/Dockerfile}
+  environment: &go-env
+    DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL for the compose postgres service}
+    REDIS_URL: redis://redis:6379/0
+    RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL for the compose rabbitmq service}
+    JWT_SECRET: ${JWT_SECRET:?Set a random JWT_SECRET of at least 32 characters}
+    AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?Set a random shared AI_SERVICE_TOKEN}
+    AI_BASE_URL: http://ai-api:8000
+    GO_HTTP_ADDR: 0.0.0.0:8080
+    OSS_REGION: ${OSS_REGION:-}
+    OSS_BUCKET: ${OSS_BUCKET:-}
+    OSS_ACCESS_KEY_ID: ${OSS_ACCESS_KEY_ID:-}
+    OSS_ACCESS_KEY_SECRET: ${OSS_ACCESS_KEY_SECRET:-}
+    OSS_SECURITY_TOKEN: ${OSS_SECURITY_TOKEN:-}
+  depends_on:
+    migrate: {condition: service_completed_successfully}
+    redis: {condition: service_healthy}
+    rabbitmq: {condition: service_healthy}
+  stop_grace_period: 15s
+  restart: unless-stopped
+x-ai-env: &ai-env
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+  RABBITMQ_URL: ${RABBITMQ_URL:?Set RABBITMQ_URL}
+  AI_SERVICE_TOKEN: ${AI_SERVICE_TOKEN:?Set AI_SERVICE_TOKEN}
+  AI_HTTP_HOST: 0.0.0.0
+  AI_PROVIDER_ENABLED: ${AI_PROVIDER_ENABLED:-false}
+  AI_CHAT_PROVIDER: ${AI_CHAT_PROVIDER:-deepseek}
+  AI_RETRIEVAL_MODE: ${AI_RETRIEVAL_MODE:-hybrid}
+  AI_VISION_PROVIDER: ${AI_VISION_PROVIDER:-deepseek}
+  DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+  DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+  DEEPSEEK_LLM_MODEL: ${DEEPSEEK_LLM_MODEL:-deepseek-v4-flash}
+  DEEPSEEK_VISION_MODEL: ${DEEPSEEK_VISION_MODEL:-deepseek-flash}
+  DEEPSEEK_THINKING_ENABLED: ${DEEPSEEK_THINKING_ENABLED:-false}
+  BAILIAN_API_KEY: ${BAILIAN_API_KEY:-}
+  BAILIAN_BASE_URL: ${BAILIAN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+  BAILIAN_LLM_MODEL: ${BAILIAN_LLM_MODEL:-qwen-plus}
+  BAILIAN_VISION_MODEL: ${BAILIAN_VISION_MODEL:-qwen-vl-plus}
+  BAILIAN_EMBEDDING_MODEL: ${BAILIAN_EMBEDDING_MODEL:-text-embedding-v3}
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-library}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-ai_library}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: {test: [CMD-SHELL, 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"'], interval: 3s, timeout: 3s, retries: 30}
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: [redis-server, --appendonly, 'yes']
+    volumes: [redisdata:/data]
+    healthcheck: {test: [CMD, redis-cli, ping], interval: 3s, timeout: 3s, retries: 30}
+    restart: unless-stopped
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-library}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?Set RABBITMQ_PASSWORD}
+    volumes: [rabbitdata:/var/lib/rabbitmq]
+    healthcheck: {test: [CMD, rabbitmq-diagnostics, -q, ping], interval: 5s, timeout: 5s, retries: 30}
+    restart: unless-stopped
+  migrate:
+    image: ai-library-go:local
+    build: {context: ., dockerfile: backend/Dockerfile}
+    command: [migrate]
+    environment: {DATABASE_URL: '${DATABASE_URL:?Set DATABASE_URL}'}
+    depends_on: {postgres: {condition: service_healthy}}
+    restart: 'no'
+  go-api:
+    <<: *go
+    healthcheck: {test: [CMD, api, -healthcheck], interval: 5s, timeout: 5s, retries: 20}
+  outbox:
+    <<: *go
+    command: [outbox]
+  results:
+    <<: *go
+    command: [results]
+  ai-api:
+    image: ai-library-ai:local
+    build: {context: ., dockerfile: ai-service/Dockerfile}
+    environment: *ai-env
+    depends_on: {migrate: {condition: service_completed_successfully}}
+    healthcheck: {test: [CMD, python, -c, 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health/live", timeout=3)'], interval: 5s, timeout: 5s, retries: 20}
+    stop_grace_period: 15s
+    restart: unless-stopped
+  ai-worker:
+    image: ai-library-ai:local
+    profiles: [ai]
+    command: [python, -m, app.workers]
+    environment: *ai-env
+    depends_on: {migrate: {condition: service_completed_successfully}, rabbitmq: {condition: service_healthy}}
+    stop_grace_period: 30s
+    restart: unless-stopped
+  storage-cleanup:
+    <<: *go
+    profiles: [storage]
+    command: [storage-cleanup]
+  scheduler:
+    <<: *go
+    profiles: [schedule]
+    command: [scheduler]
+    environment:
+      <<: *go-env
+      AUTO_EXTRACT_ENABLED: ${AUTO_EXTRACT_ENABLED:-false}
+  web:
+    image: ai-library-web:local
+    build: {context: ., dockerfile: client/Dockerfile}
+    ports: ['127.0.0.1:${WEB_PORT:-8088}:80']
+    depends_on: {go-api: {condition: service_healthy}, ai-api: {condition: service_healthy}}
+    restart: unless-stopped
+volumes:
+  pgdata:
+  redisdata:
+  rabbitdata:

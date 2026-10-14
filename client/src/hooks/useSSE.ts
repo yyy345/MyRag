@@ -29,20 +29,32 @@ export function useSSE(): UseSSEReturn {
       setUsage(null);
       abortRef.current = false;
       let full = '';
+      let completed = false;
 
       try {
         for await (const event of generator) {
           if (abortRef.current) break;
-          if (event.type === 'chunk' && event.content) {
+          if (!event || completed) throw new Error('回答数据格式异常，请重新发送');
+          if (event.type === 'chunk' && typeof event.content === 'string') {
             full += event.content;
             setStreamContent(full);
           } else if (event.type === 'done') {
+            // The Go API returns failures as terminal events with content.
+            if (event.content) throw new Error(event.content);
+            if (!full.trim()) throw new Error('未收到有效回答，请重新发送');
+            completed = true;
             setReferences(event.references || null);
             setUsage(event.usage || null);
+          } else {
+            throw new Error('回答数据格式异常，请重新发送');
           }
         }
+        if (abortRef.current) return '';
+        if (!completed) throw new Error('回答连接中断，请重新发送');
       } catch (err) {
-        console.error('SSE error:', err);
+        setStreamContent('');
+        if (abortRef.current) return '';
+        throw err;
       } finally {
         setStreaming(false);
       }

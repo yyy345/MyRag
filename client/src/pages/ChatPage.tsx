@@ -77,33 +77,37 @@ export default function ChatPage() {
   }, [id, dispatch]);
 
   const handleSend = useCallback(async (content: string) => {
-    let sessionId = currentSessionIdRef.current;
-    if (!sessionId) {
-      const res = await dispatch(createSession(id!)).unwrap();
-      sessionId = res.id;
-      navigate(`/knowledge-bases/${id}/chat/${sessionId}`);
+    try {
+      let sessionId = currentSessionIdRef.current;
+      if (!sessionId) {
+        const res = await dispatch(createSession(id!)).unwrap();
+        sessionId = res.id;
+        navigate(`/knowledge-bases/${id}/chat/${sessionId}`);
+      }
+
+      const userMsg: ChatMessage = {
+        id: Date.now().toString(),
+        session_id: sessionId,
+        role: 'USER',
+        content,
+        references: null,
+        token_usage: null,
+        created_at: new Date().toISOString(),
+      };
+      dispatch(addMessage(userMsg));
+
+      const generator = chatApi.sendMessage(id!, sessionId, content);
+      const fullContent = await startStream(generator);
+
+      // 流结束后如果用户已切到其他会话，不刷新消息，避免覆写 Redux 数据
+      if (fullContent && currentSessionIdRef.current === sessionId) {
+        dispatch(fetchMessages({ kbId: id!, sid: sessionId }));
+        dispatch(fetchSessions(id!));
+      }
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '回答生成失败，请稍后重试');
     }
-
-    const userMsg: ChatMessage = {
-      id: Date.now().toString(),
-      session_id: sessionId,
-      role: 'USER',
-      content,
-      references: null,
-      token_usage: null,
-      created_at: new Date().toISOString(),
-    };
-    dispatch(addMessage(userMsg));
-
-    const generator = chatApi.sendMessage(id!, sessionId, content);
-    const fullContent = await startStream(generator);
-
-    // 流结束后如果用户已切到其他会话，不刷新消息，避免覆写 Redux 数据
-    if (fullContent && currentSessionIdRef.current === sessionId) {
-      dispatch(fetchMessages({ kbId: id!, sid: sessionId }));
-      dispatch(fetchSessions(id!));
-    }
-  }, [id, dispatch, navigate, startStream]);
+  }, [id, dispatch, navigate, startStream, message]);
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 116px)', gap: 0, margin: -28 }}>

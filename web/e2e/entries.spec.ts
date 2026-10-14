@@ -1,0 +1,51 @@
+import { test, expect, db } from './fixtures';
+
+test('entry title, preview, status filters and batch deletion match database state', async ({ signedInPage: page, account }) => {
+  const kb = await db.knowledgeBase.create({ data: { userId: account.id, name: '条目测试库' } });
+  await page.goto(`/knowledge-bases/${kb.id}`);
+  await page.getByRole('button', { name: '新建条目', exact: true }).click();
+  await page.getByLabel('标题', { exact: true }).fill('手动知识');
+  await page.getByLabel('内容（Markdown）', { exact: true }).fill('# 知识内容\n\n测试正文。');
+  await expect(page.getByRole('heading', { name: '知识内容', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  const row = page.getByRole('row').filter({ hasText: '手动知识' });
+  await expect(row).toBeVisible();
+  const entry = await db.knowledgeEntry.findFirstOrThrow({ where: { kbId: kb.id } });
+  expect(entry.content).toContain('测试正文');
+  await row.getByRole('button', { name: '预览', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '预览知识条目' }).getByRole('heading', { name: '知识内容' })).toBeVisible();
+  await page.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+  await row.getByRole('button', { name: '编辑', exact: true }).click();
+  await page.getByLabel('标题', { exact: true }).fill('已改名知识');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await page.getByRole('button', { name: '禁用 已改名知识', exact: true }).click();
+  await expect(page.getByRole('button', { name: '启用 已改名知识', exact: true })).toBeVisible();
+  expect((await db.knowledgeEntry.findUniqueOrThrow({ where: { id: entry.id } })).status).toBe('DISABLED');
+  await page.getByLabel('状态', { exact: true }).selectOption('ENABLED');
+  await expect(page.getByText('没有符合条件的条目。', { exact: false })).toBeVisible();
+  await page.getByLabel('状态', { exact: true }).selectOption('DISABLED');
+  await page.getByLabel('选择 已改名知识', { exact: true }).check();
+  await page.getByRole('button', { name: '删除选中（1）', exact: true }).click();
+  await page.getByRole('button', { name: '确认删除', exact: true }).click();
+  await expect(page.getByText('没有符合条件的条目。', { exact: false })).toBeVisible();
+  expect(await db.knowledgeEntry.findUnique({ where: { id: entry.id } })).toBeNull();
+});
+
+test('file rename preserves extension and a failed delete can be retried', async ({ signedInPage: page, account }) => {
+  const kb = await db.knowledgeBase.create({ data: { userId: account.id, name: '文件测试库' } });
+  const entry = await db.knowledgeEntry.create({ data: { kbId: kb.id, title: '资料.TXT', sourceFileName: '资料.TXT', content: '正文', type: 'FILE' } });
+  await page.goto(`/knowledge-bases/${kb.id}`);
+  await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await expect(page.getByLabel('标题', { exact: true })).toHaveValue('资料');
+  await page.getByLabel('标题', { exact: true }).fill('修改名称');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByRole('cell', { name: '修改名称.txt', exact: true })).toBeVisible();
+  await page.route(`**/entries/${entry.id}`, route => route.request().method() === 'DELETE' ? route.abort() : route.continue());
+  await page.getByRole('button', { name: '删除', exact: true }).click();
+  await page.getByRole('button', { name: '确认删除', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('1 个条目删除失败');
+  await page.unroute(`**/entries/${entry.id}`);
+  await page.getByRole('button', { name: '确认删除', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '删除条目' })).not.toBeVisible();
+  expect(await db.knowledgeEntry.findUnique({ where: { id: entry.id } })).toBeNull();
+});

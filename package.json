@@ -1,7 +1,20 @@
 {
   "name": "ai-knowledge-platform",
   "private": true,
+  "scripts": {
+	"dev": "npm run dev --workspace client",
+	"build": "npm run build --workspace client",
+	"dev:vue": "npm run dev --workspace web",
+	"build:vue": "npm run build --workspace web",
+	"test:web": "npm run test --workspace web",
+	"test:e2e:go": "node scripts/run-go-e2e.cjs",
+	"test:e2e:vue": "node scripts/run-go-e2e.cjs --frontend vue",
+	"test:migration": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-migration.ps1",
+	"test:performance": "node scripts/run-go-e2e.cjs --benchmark",
+    "test:xlsx-parity": "node --require tsx/cjs scripts/compare-xlsx-parsers.cjs"
+  },
   "workspaces": [
+	"web",
     "client",
     "server",
     "shared"

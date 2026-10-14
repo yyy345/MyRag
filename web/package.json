@@ -1,0 +1,37 @@
+{
+  "name": "web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5174 --strictPort",
+    "build": "vue-tsc --noEmit && vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "typecheck:e2e": "tsc --noEmit -p tsconfig.e2e.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "preview": "vite preview --host 127.0.0.1 --port 4174 --strictPort"
+  },
+  "dependencies": {
+    "ant-design-vue": "^4.2.6",
+    "echarts": "6.1.0",
+    "markdown-it": "14.3.2",
+    "pinia": "^3.0.0",
+    "shared": "1.0.0",
+    "vue": "^3.5.43",
+    "vue-router": "^4.5.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/ali-oss": "6.23.3",
+    "@types/markdown-it": "14.2.0",
+    "@types/node": "^22.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "@vue/test-utils": "2.4.6",
+    "jsdom": "^26.1.0",
+    "typescript": "~5.9.3",
+    "vite": "8.0.14",
+    "vitest": "4.1.11",
+    "vue-tsc": "^3.0.0"
+  }
+}

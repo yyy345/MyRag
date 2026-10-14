@@ -96,31 +96,55 @@ export async function* postStream<T>(
   });
 
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    if (response.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+      throw new Error('请先登录');
+    }
+    const error = await response.json().catch(() => null);
+    throw new Error(typeof error?.message === 'string' && error.message.trim()
+      ? error.message
+      : `回答请求失败（${response.status}），请稍后重试`);
   }
 
-  const reader = response.body!.getReader();
-  const decoder = new TextDecoder();
+  if (!response.body || !response.headers.get('Content-Type')?.includes('text/event-stream')) {
+    throw new Error('回答服务返回了无效响应，请稍后重试');
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8', { fatal: true });
   let buffer = '';
+  let data: string[] = [];
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';
-    for (const line of lines) {
-      if (line.startsWith('data: ')) {
-        const data = line.slice(6).trim();
-        if (data) {
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, '');
+        if (line === '' && data.length) {
+          let event: T;
           try {
-            yield JSON.parse(data);
+            event = JSON.parse(data.join('\n')) as T;
           } catch {
-            /* 跳过解析失败的行 */
+            throw new Error('回答数据格式异常，请重新发送');
           }
+          data = [];
+          yield event;
+        } else if (line.startsWith('data:')) {
+          data.push(line.slice(5).replace(/^ /, ''));
         }
       }
+      if (done) {
+        if (buffer.trim() || data.length) throw new Error('回答连接中断，请重新发送');
+        break;
+      }
     }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
   }
 }
 

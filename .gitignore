@@ -1,9 +1,18 @@
 # Dependencies
 node_modules/
+.venv/
+.venv-*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.cache/
 
 # Build output
 dist/
 build/
+test-results/
+playwright-report/
 
 # Environment variables (contains API keys and secrets)
 .env

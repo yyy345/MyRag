@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "IndexTaskV1 (draft; isolated from legacy document_processing)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "task_id", "entry_id", "kb_id", "entry_version", "trace_id"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "task_id": { "type": "string", "format": "uuid" },
+    "entry_id": { "type": "string", "format": "uuid" },
+    "kb_id": { "type": "string", "format": "uuid" },
+    "entry_version": { "type": "integer", "minimum": 1 },
+    "trace_id": { "type": "string", "minLength": 1, "maxLength": 128 }
+  }
+}
